@@ -4,13 +4,13 @@
 #include "timestamp.hh"
 
 #define AIMD false 
-#define AIMD_INC 1 
-#define AIMD_DEC 0.1
+#define AIMD_INC 2
+#define AIMD_DEC 0.5
 
-#define DELAY_TRIGGERED true
+#define DELAY_TRIGGERED false 
 #define DT_INC 1
-#define DT_DEC 10
-#define DT_THRESHOLD 350  // in milliseconds
+#define DT_DEC 10 
+#define DT_THRESHOLD 450  // in milliseconds
 #define PERIOD 2 // in milliseconds, time to wait before next increase
 
 using namespace std;
@@ -21,7 +21,9 @@ Controller::Controller( const bool debug )
 {}
 
 /* Default: fixed window size of 100 outstanding datagrams */
-unsigned int the_window_size = 1;
+unsigned int the_window_size = 20;
+
+unsigned int in_progress_window = 0;
 
 // last ack received, used for delay triggered
 uint64_t last_ack = 0;
@@ -76,18 +78,22 @@ void Controller::ack_received( const uint64_t sequence_number_acked,
   /* Default: take no action */
 
   if (AIMD) {
-    the_window_size += AIMD_INC;
+    in_progress_window += AIMD_INC;
+    if (in_progress_window >= the_window_size) {
+      the_window_size += 1;
+      in_progress_window = 0;
+    }
   }
 
   if (DELAY_TRIGGERED) {
     uint64_t rtt = timestamp_ack_received - send_timestamp_acked;
     if (rtt < DT_THRESHOLD && sequence_number_acked > last_ack) {
-       if (timestamp_ack_received - last_update >= PERIOD) {
-         last_update = timestamp_ack_received;
-         the_window_size += DT_INC;
-       }
+         in_progress_window += DT_INC;
+         if (in_progress_window >= the_window_size) {
+           the_window_size += 1;
+           in_progress_window = 0;
+         }
     } else {
-       last_update = timestamp_ack_received;
        uint64_t new_window_sz = the_window_size - DT_DEC;
        the_window_size = new_window_sz < the_window_size ? new_window_sz : 0; // check for overflow
     }
