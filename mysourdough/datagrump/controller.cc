@@ -16,9 +16,11 @@
 
 #define COOL_ALG true
 #define TICK 20 // in ms
-#define MAX_RATE 10 
-#define TICKS_PER_RTT 5 
-#define PERCENTILE_LATENCY 0.05
+#define MAX_RATE 200
+#define TICKS_PER_RTT 3.5 
+#define PERCENTILE_LATENCY 0.01
+#define PACKETS_PER_BUCKET 20.0
+#define EWMA_WEIGHT 0.2
 
 using namespace std;
 
@@ -35,7 +37,7 @@ Controller::Controller( const bool debug )
 {
 //  total_packets = 0;
 //  for (int i = 0; i < MAX_RATE; i++) {
-//    total_packets += i * TICKS_PER_RTT;
+//    total_packets += i / PACKETS_PER_BUCKET * TICKS_PER_RTT;
 //  }
   for (int i = 0; i < MAX_RATE; i++) {
     rate_probability[i] = 1.0 / MAX_RATE;
@@ -141,16 +143,17 @@ void Controller::ack_received( const uint64_t sequence_number_acked,
       double sum = 0;
       // Update rate probabilities. 
       for (int i = 0; i < MAX_RATE; i++) {
-        double p = pow(i * (TICK  / 1000.0), packets_in_tick);
+        double p = pow((i / PACKETS_PER_BUCKET) * (TICK  / 1000.0), packets_in_tick);
         p /= (double) factorial(packets_in_tick);
-        p *= exp(-1 * i * (TICK / 1000.0));
-        rate_probability[i] = /*rate_probability[i] **/ p;
+        p *= exp(-1 * (i / PACKETS_PER_BUCKET) * (TICK / 1000.0));
+        rate_probability[i] = /*rate_probability[i] * */p;
         cerr << "rate_probability[" << i << "] = " << rate_probability[i] << endl;
         sum += rate_probability[i];
       }
       // Normalize rate probabilities. 
       for (int i = 0; i < MAX_RATE; i++) {
         rate_probability[i] /= sum;
+        cerr << "normalized rate_probability[" << i << "] = " << rate_probability[i] << endl;
       }
       // Set window size based on largest rate_probability value
       sum = 0;
@@ -159,7 +162,7 @@ void Controller::ack_received( const uint64_t sequence_number_acked,
         sum += rate_probability[i];
         i++;
       }
-      the_window_size = i * TICKS_PER_RTT;
+      the_window_size = EWMA_WEIGHT * ((i / PACKETS_PER_BUCKET) * TICKS_PER_RTT) + ((1 - EWMA_WEIGHT) * the_window_size);
       cerr << "new window sz: " << the_window_size << endl;
       // 95th percentile just use lambda * 8 (TICK * 8 = RTT)     
       // Reset for next period.
