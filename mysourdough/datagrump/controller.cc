@@ -16,16 +16,31 @@
 
 #define COOL_ALG true
 #define TICK 20 // in ms
-#define MAX_RATE 200
-#define TICKS_PER_RTT 10 
+#define MAX_RATE 10 
+#define TICKS_PER_RTT 5 
 #define PERCENTILE_LATENCY 0.05
 
 using namespace std;
 
+// sum of 0 through max rate * TICKS_PER_RTT
+double total_packets;
+
+// probability distributions
+double rate_probability[MAX_RATE];
+
+
 /* Default constructor */
 Controller::Controller( const bool debug )
   : debug_( debug )
-{}
+{
+//  total_packets = 0;
+//  for (int i = 0; i < MAX_RATE; i++) {
+//    total_packets += i * TICKS_PER_RTT;
+//  }
+  for (int i = 0; i < MAX_RATE; i++) {
+    rate_probability[i] = 1.0 / MAX_RATE;
+  }
+}
 
 /* Default: fixed window size of 100 outstanding datagrams */
 unsigned int the_window_size = 20;
@@ -40,9 +55,6 @@ uint64_t last_update = 0;
 
 // last tick time
 uint64_t last_tick = 0;
-
-// probability distributions
-double rate_probability[MAX_RATE];
 
 // acks received during tick
 uint64_t packets_in_tick = 0;
@@ -129,10 +141,11 @@ void Controller::ack_received( const uint64_t sequence_number_acked,
       double sum = 0;
       // Update rate probabilities. 
       for (int i = 0; i < MAX_RATE; i++) {
-        double top = pow(i * (TICK / 1000), packets_in_tick);
-        top *= exp(-1 * i * (TICK / 1000));
-        double bottom = (double) factorial(packets_in_tick);
-        rate_probability[i] = rate_probability[i] * top / bottom;
+        double p = pow(i * (TICK  / 1000.0), packets_in_tick);
+        p /= (double) factorial(packets_in_tick);
+        p *= exp(-1 * i * (TICK / 1000.0));
+        rate_probability[i] = /*rate_probability[i] **/ p;
+        cerr << "rate_probability[" << i << "] = " << rate_probability[i] << endl;
         sum += rate_probability[i];
       }
       // Normalize rate probabilities. 
@@ -147,6 +160,7 @@ void Controller::ack_received( const uint64_t sequence_number_acked,
         i++;
       }
       the_window_size = i * TICKS_PER_RTT;
+      cerr << "new window sz: " << the_window_size << endl;
       // 95th percentile just use lambda * 8 (TICK * 8 = RTT)     
       // Reset for next period.
       last_tick = timestamp_ack_received;
