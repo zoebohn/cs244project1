@@ -2,6 +2,7 @@
 
 #include "controller.hh"
 #include "timestamp.hh"
+#include <math.h>
 
 #define AIMD false 
 #define AIMD_INC 2
@@ -12,6 +13,12 @@
 #define DT_DEC 10 
 #define DT_THRESHOLD 450  // in milliseconds
 #define PERIOD 2 // in milliseconds, time to wait before next increase
+
+#define COOL_ALG true
+#define TICK 20 // in ms
+#define MAX_RATE 200
+#define TICKS_PER_RTT 10 
+#define PERCENTILE_LATENCY 0.05
 
 using namespace std;
 
@@ -30,6 +37,15 @@ uint64_t last_ack = 0;
 
 // last time window was updated, used for delay triggered
 uint64_t last_update = 0;
+
+// last tick time
+uint64_t last_tick = 0;
+
+// probability distributions
+double rate_probability[MAX_RATE];
+
+// acks received during tick
+uint64_t packets_in_tick = 0;
 
 /* Get current window size, in datagrams */
 unsigned int Controller::window_size()
@@ -63,6 +79,11 @@ void Controller::datagram_was_sent( const uint64_t sequence_number,
     cerr << "At time " << send_timestamp
 	 << " sent datagram " << sequence_number << " (timeout = " << after_timeout << ")\n";
   }
+}
+
+uint64_t factorial(uint64_t n) {
+  if (n == 0) return 1;
+  return n*factorial(n-1);
 }
 
 /* An ack was received */
@@ -100,7 +121,39 @@ void Controller::ack_received( const uint64_t sequence_number_acked,
     cerr << "new window sz: " << the_window_size << endl;
   }
   last_ack = sequence_number_acked > last_ack ? sequence_number_acked : last_ack;
-  
+ 
+  if (COOL_ALG) {
+    packets_in_tick++;
+    if (timestamp_ack_received - last_tick >= TICK) {
+      // Tick has elapsed.
+      double sum = 0;
+      // Update rate probabilities. 
+      for (int i = 0; i < MAX_RATE; i++) {
+        double top = pow(i * (TICK / 1000), packets_in_tick);
+        top *= exp(-1 * i * (TICK / 1000));
+        double bottom = (double) factorial(packets_in_tick);
+        rate_probability[i] = rate_probability[i] * top / bottom;
+        sum += rate_probability[i];
+      }
+      // Normalize rate probabilities. 
+      for (int i = 0; i < MAX_RATE; i++) {
+        rate_probability[i] /= sum;
+      }
+      // Set window size based on largest rate_probability value
+      sum = 0;
+      int i = 0;
+      while (sum < PERCENTILE_LATENCY && i < MAX_RATE) {
+        sum += rate_probability[i];
+        i++;
+      }
+      the_window_size = i * TICKS_PER_RTT;
+      // 95th percentile just use lambda * 8 (TICK * 8 = RTT)     
+      // Reset for next period.
+      last_tick = timestamp_ack_received;
+      packets_in_tick = 0;
+    }
+  }
+ 
   if ( debug_ ) {
     cerr << "At time " << timestamp_ack_received
 	 << " received ack for datagram " << sequence_number_acked
@@ -109,6 +162,7 @@ void Controller::ack_received( const uint64_t sequence_number_acked,
 	 << endl;
   }
 }
+
 
 /* How long to wait (in milliseconds) if there are no acks
    before sending one more datagram */
