@@ -71,6 +71,8 @@ uint64_t old_packets_in_tick = 0;
 
 uint64_t old2_packets_in_tick = 0;
 
+uint64_t retransmit_packets_in_tick = 0;
+
 // track last ackno received so don't double count packets
 uint64_t last_ackno = 0;
 
@@ -101,6 +103,12 @@ void Controller::datagram_was_sent( const uint64_t sequence_number,
   if (AIMD) {
     if (after_timeout) {
       the_window_size = the_window_size*AIMD_DEC;
+    }
+  }
+
+  if (COOL_ALG) {
+    if (after_timeout) {
+      retransmit_packets_in_tick++;
     }
   }
 
@@ -219,7 +227,7 @@ void Controller::ack_received( const uint64_t sequence_number_acked,
 //        ewma = EWMA_WEIGHT;
 //      }
 //      the_window_size = (ewma * new_estimate) + ((1 - ewma) * the_window_size);
-      uint64_t new_estimate = (i / PACKETS_PER_BUCKET) + old_packets_in_tick + old2_packets_in_tick;
+      uint64_t new_estimate = (i / PACKETS_PER_BUCKET) + old_packets_in_tick + old2_packets_in_tick - retransmit_packets_in_tick;
       the_window_size = EWMA_WEIGHT * (new_estimate) + ((1 - EWMA_WEIGHT) * the_window_size);
       if (DEBUG) cerr << "new window sz: " << the_window_size << endl;
       // 95th percentile just use lambda * 8 (TICK * 8 = RTT)     
@@ -228,6 +236,7 @@ void Controller::ack_received( const uint64_t sequence_number_acked,
       old_packets_in_tick = packets_in_tick;
       old2_packets_in_tick = old_packets_in_tick;
       packets_in_tick = 0;
+      retransmit_packets_in_tick = 0;
       time_elapsed += TICK / 1000.0;
     }
   }
