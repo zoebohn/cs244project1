@@ -23,8 +23,9 @@
 #define EWMA_WEIGHT 0.2 
 #define BROWNIAN_MOTION 200.0
 #define MIN_PROB 0.000001
+#define ZFACTOR 0.2 
 
-#define DEBUG false
+#define DEBUG false 
 
 using namespace std;
 
@@ -67,6 +68,8 @@ uint64_t packets_in_tick = 0;
 
 // acks received during previous tick
 uint64_t old_packets_in_tick = 0;
+
+uint64_t old2_packets_in_tick = 0;
 
 // track last ackno received so don't double count packets
 uint64_t last_ackno = 0;
@@ -162,20 +165,27 @@ void Controller::ack_received( const uint64_t sequence_number_acked,
       double sum = 0;
       // Evolve rate probabilities.
       if (time_elapsed != 0.0) {
-      double stddev = BROWNIAN_MOTION * sqrt(time_elapsed);
-      if (DEBUG) cout << "STDDEV: " << stddev << endl;
-//      double mean = old_packets_in_tick;
-        //double val = cdf(mean, stddev, packets_in_tick + PACKETS_PER_BUCKET - old_packets_in_tick) - cdf(mean, stddev, packets_in_tick - old_packets_in_tick);
-        rate_probability[0] = max(rate_probability[0], MIN_PROB);
-	if (DEBUG) cout << "evolved rate probability[0] = " << rate_probability[0] << endl;
-        for (int i = 1; i < MAX_RATE; i++) {
-          double mean = 0.0;
-          double val = cdf(mean, stddev, packets_in_tick + (1.0 / PACKETS_PER_BUCKET) - i) - cdf(mean, stddev, packets_in_tick - i);
-          //double val = cdf(mean, stddev, packets_in_tick + PACKETS_PER_BUCKET - (i * PACKETS_PER_BUCKET)) - cdf(mean, stddev, packets_in_tick - (i * PACKETS_PER_BUCKET));
-          // cdf(min(ceil,new + PACKETS_PER_BUCKET) - old) - cdf(max(floor,new) - old)
-	  if (DEBUG) cout << "evolved rate probability[" << i << "] by " << val << " to " << rate_probability[i] << endl;
-          rate_probability[i] = max(rate_probability[i] * val, MIN_PROB);  // prevent -nan with 0 
-          //rate_probability[i] = min(rate_probability[i], MIN_PROB) + val;
+        double stddev = BROWNIAN_MOTION * sqrt(time_elapsed);
+        if (DEBUG) cout << "STDDEV: " << stddev << endl;
+         double new_rate_probability[MAX_RATE];
+         for (int i = 0; i < MAX_RATE; i++) {
+           new_rate_probability[i] = 0.0;
+         }
+         new_rate_probability[0] = max(rate_probability[0], MIN_PROB);
+         if (DEBUG) cout << "evolved rate probability[0] = " << rate_probability[0] << endl;
+         for (int new_rate = 1; new_rate < MAX_RATE; new_rate++) {
+           for (int old_rate = 1; old_rate < MAX_RATE; old_rate++) {
+             double mean = 0.0;
+	     double zfactor = 1.0;
+             if (old_rate == 0) {
+               zfactor = (new_rate != 0) ? ZFACTOR : 1 - ZFACTOR;
+             }
+             double val = cdf(mean, stddev, new_rate + (1.0 / PACKETS_PER_BUCKET) - old_rate) - cdf(mean, stddev, new_rate - old_rate);
+             new_rate_probability[new_rate] += rate_probability[old_rate] * val * zfactor;  // prevent -nan with 0 
+          }
+        }
+        for (int i = 0; i < MAX_RATE; i++) {
+          rate_probability[i] = new_rate_probability[i];
         }
       }
       // Update rate probabilities. 
@@ -201,18 +211,22 @@ void Controller::ack_received( const uint64_t sequence_number_acked,
         sum += rate_probability[i];
         i++;
       }
-      //uint64_t new_estimate = (i / PACKETS_PER_BUCKET) * TICKS_PER_RTT;
-      //if (new_estimate >= the_window_size) {
-      //  the_window_size = new_estimate;
-      //} else {
-      //  the_window_size = (EWMA_WEIGHT * new_estimate) + ((1 - EWMA_WEIGHT) * the_window_size);
-      //}
-      the_window_size = EWMA_WEIGHT * ((i / PACKETS_PER_BUCKET) * TICKS_PER_RTT) + ((1 - EWMA_WEIGHT) * the_window_size);
+//      uint64_t new_estimate = (i / PACKETS_PER_BUCKET) * TICKS_PER_RTT;
+//      double ewma;
+//      if (new_estimate < the_window_size) {
+//        ewma = 2.0 * EWMA_WEIGHT;
+//      } else {
+//        ewma = EWMA_WEIGHT;
+//      }
+//      the_window_size = (ewma * new_estimate) + ((1 - ewma) * the_window_size);
+      uint64_t new_estimate = (i / PACKETS_PER_BUCKET) + old_packets_in_tick + old2_packets_in_tick;
+      the_window_size = EWMA_WEIGHT * (new_estimate) + ((1 - EWMA_WEIGHT) * the_window_size);
       if (DEBUG) cerr << "new window sz: " << the_window_size << endl;
       // 95th percentile just use lambda * 8 (TICK * 8 = RTT)     
       // Reset for next period.
       last_tick = timestamp_ack_received;
       old_packets_in_tick = packets_in_tick;
+      old2_packets_in_tick = old_packets_in_tick;
       packets_in_tick = 0;
       time_elapsed += TICK / 1000.0;
     }
