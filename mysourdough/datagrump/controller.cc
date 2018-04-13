@@ -21,9 +21,10 @@
 #define PERCENTILE_LATENCY 0.01
 #define PACKETS_PER_BUCKET 20.0  // rename to INTERVAL_SIZE
 #define EWMA_WEIGHT 0.2 
-#define STDDEV_INC 0.0001
+#define BROWNIAN_MOTION 200.0
+#define MIN_PROB 0.000001
 
-#define DEBUG true 
+#define DEBUG false
 
 using namespace std;
 
@@ -70,7 +71,7 @@ uint64_t old_packets_in_tick = 0;
 // track last ackno received so don't double count packets
 uint64_t last_ackno = 0;
 
-double stddev = 0;
+double time_elapsed = 0.0;
 
 /* Get current window size, in datagrams */
 unsigned int Controller::window_size()
@@ -160,16 +161,22 @@ void Controller::ack_received( const uint64_t sequence_number_acked,
       // Tick has elapsed.
       double sum = 0;
       // Evolve rate probabilities.
-      stddev += STDDEV_INC;
+      if (time_elapsed != 0.0) {
+      double stddev = BROWNIAN_MOTION * sqrt(time_elapsed);
+      if (DEBUG) cout << "STDDEV: " << stddev << endl;
 //      double mean = old_packets_in_tick;
-      //double val = cdf(mean, stddev, packets_in_tick + PACKETS_PER_BUCKET - old_packets_in_tick) - cdf(mean, stddev, packets_in_tick - old_packets_in_tick);
-      for (int i = 0; i < MAX_RATE; i++) {
-        double mean = i * PACKETS_PER_BUCKET;
-        double val = cdf(mean, stddev, packets_in_tick + 1.0 - old_packets_in_tick) - cdf(mean, stddev, packets_in_tick - old_packets_in_tick);
-        //double val = cdf(mean, stddev, packets_in_tick + PACKETS_PER_BUCKET - (i * PACKETS_PER_BUCKET)) - cdf(mean, stddev, packets_in_tick - (i * PACKETS_PER_BUCKET));
-        // cdf(min(ceil,new + PACKETS_PER_BUCKET) - old) - cdf(max(floor,new) - old)
-        rate_probability[i] = rate_probability[i] + val;
-        //rate_probability[i] = min(rate_probability[i], MIN_PROB) + val;
+        //double val = cdf(mean, stddev, packets_in_tick + PACKETS_PER_BUCKET - old_packets_in_tick) - cdf(mean, stddev, packets_in_tick - old_packets_in_tick);
+        rate_probability[0] = max(rate_probability[0], MIN_PROB);
+	if (DEBUG) cout << "evolved rate probability[0] = " << rate_probability[0] << endl;
+        for (int i = 1; i < MAX_RATE; i++) {
+          double mean = 0.0;
+          double val = cdf(mean, stddev, packets_in_tick + (1.0 / PACKETS_PER_BUCKET) - i) - cdf(mean, stddev, packets_in_tick - i);
+          //double val = cdf(mean, stddev, packets_in_tick + PACKETS_PER_BUCKET - (i * PACKETS_PER_BUCKET)) - cdf(mean, stddev, packets_in_tick - (i * PACKETS_PER_BUCKET));
+          // cdf(min(ceil,new + PACKETS_PER_BUCKET) - old) - cdf(max(floor,new) - old)
+	  if (DEBUG) cout << "evolved rate probability[" << i << "] by " << val << " to " << rate_probability[i] << endl;
+          rate_probability[i] = max(rate_probability[i] * val, MIN_PROB);  // prevent -nan with 0 
+          //rate_probability[i] = min(rate_probability[i], MIN_PROB) + val;
+        }
       }
       // Update rate probabilities. 
       for (int i = 0; i < MAX_RATE; i++) {
@@ -181,6 +188,7 @@ void Controller::ack_received( const uint64_t sequence_number_acked,
         if (DEBUG) cerr << "rate_probability[" << i << "] = " << rate_probability[i] << endl;
         sum += rate_probability[i];
       }
+      if (DEBUG) cerr << "sum = " << sum << endl;
       // Normalize rate probabilities. 
       for (int i = 0; i < MAX_RATE; i++) {
         rate_probability[i] = rate_probability[i] / sum;
@@ -193,7 +201,6 @@ void Controller::ack_received( const uint64_t sequence_number_acked,
         sum += rate_probability[i];
         i++;
       }
-      i--;
       //uint64_t new_estimate = (i / PACKETS_PER_BUCKET) * TICKS_PER_RTT;
       //if (new_estimate >= the_window_size) {
       //  the_window_size = new_estimate;
@@ -207,6 +214,7 @@ void Controller::ack_received( const uint64_t sequence_number_acked,
       last_tick = timestamp_ack_received;
       old_packets_in_tick = packets_in_tick;
       packets_in_tick = 0;
+      time_elapsed += TICK / 1000.0;
     }
   }
  
