@@ -16,14 +16,8 @@
 
 #define COOL_ALG true
 #define TICK 20 // in ms
-#define MAX_RATE 200
-#define TICKS_PER_RTT 3.5 // was 3.5 
-#define PERCENTILE_LATENCY 0.01
-#define PACKETS_PER_BUCKET 20.0  // rename to INTERVAL_SIZE
-#define EWMA_WEIGHT 0.2 
-#define BROWNIAN_MOTION 200.0
-#define MIN_PROB 0.000001
-#define ZFACTOR 0.2 
+#define EWMA_WEIGHT 0.2
+#define RTT_PERCENT 1.5
 
 #define DEBUG false 
 
@@ -32,21 +26,11 @@ using namespace std;
 // sum of 0 through max rate * TICKS_PER_RTT
 //double total_packets;
 
-// probability distributions
-double rate_probability[MAX_RATE];
-
 
 /* Default constructor */
 Controller::Controller( const bool debug )
   : debug_( debug )
 {
-//  total_packets = 0;
-//  for (int i = 0; i < MAX_RATE; i++) {
-//    total_packets += i / PACKETS_PER_BUCKET * TICKS_PER_RTT;
-//  }
-  for (int i = 0; i < MAX_RATE; i++) {
-    rate_probability[i] = 1.0 / MAX_RATE;
-  }
 }
 
 /* Default: fixed window size of 100 outstanding datagrams */
@@ -66,17 +50,9 @@ uint64_t last_tick = 0;
 // acks received during tick
 uint64_t packets_in_tick = 0;
 
-// acks received during previous tick
-uint64_t old_packets_in_tick = 0;
+uint64_t min_rtt = 50;
 
-uint64_t old2_packets_in_tick = 0;
-
-uint64_t retransmit_packets_in_tick = 0;
-
-// track last ackno received so don't double count packets
-uint64_t last_ackno = 0;
-
-double time_elapsed = 0.0;
+uint64_t avg_rtt = 50;
 
 /* Get current window size, in datagrams */
 unsigned int Controller::window_size()
@@ -103,12 +79,6 @@ void Controller::datagram_was_sent( const uint64_t sequence_number,
   if (AIMD) {
     if (after_timeout) {
       the_window_size = the_window_size*AIMD_DEC;
-    }
-  }
-
-  if (COOL_ALG) {
-    if (after_timeout) {
-      retransmit_packets_in_tick++;
     }
   }
 
@@ -164,80 +134,18 @@ void Controller::ack_received( const uint64_t sequence_number_acked,
   last_ack = sequence_number_acked > last_ack ? sequence_number_acked : last_ack;
  
   if (COOL_ALG) {
-    if (last_ackno != sequence_number_acked) {
-      packets_in_tick++;
-      last_ackno = sequence_number_acked;
+//    packets_in_tick++;  // HAD THIS COMMENTED OUT
+    uint64_t rtt = timestamp_ack_received - send_timestamp_acked;
+    min_rtt = min(min_rtt, rtt);
+    avg_rtt = (EWMA_WEIGHT * rtt) + ((1 - EWMA_WEIGHT) * avg_rtt);
+    if (rtt <= RTT_PERCENT * min_rtt) {
+        the_window_size++;
     }
     if (timestamp_ack_received - last_tick >= TICK) {
-      // Tick has elapsed.
-      double sum = 0;
-      // Evolve rate probabilities.
-      if (time_elapsed != 0.0) {
-        double stddev = BROWNIAN_MOTION * sqrt(time_elapsed);
-        if (DEBUG) cout << "STDDEV: " << stddev << endl;
-         double new_rate_probability[MAX_RATE];
-         for (int i = 0; i < MAX_RATE; i++) {
-           new_rate_probability[i] = 0.0;
-         }
-         new_rate_probability[0] = max(rate_probability[0], MIN_PROB);
-         if (DEBUG) cout << "evolved rate probability[0] = " << rate_probability[0] << endl;
-         for (int new_rate = 1; new_rate < MAX_RATE; new_rate++) {
-           for (int old_rate = 1; old_rate < MAX_RATE; old_rate++) {
-             double mean = 0.0;
-	     double zfactor = 1.0;
-             if (old_rate == 0) {
-               zfactor = (new_rate != 0) ? ZFACTOR : 1 - ZFACTOR;
-             }
-             double val = cdf(mean, stddev, new_rate + (1.0 / PACKETS_PER_BUCKET) - old_rate) - cdf(mean, stddev, new_rate - old_rate);
-             new_rate_probability[new_rate] += rate_probability[old_rate] * val * zfactor;  // prevent -nan with 0 
-          }
-        }
-        for (int i = 0; i < MAX_RATE; i++) {
-          rate_probability[i] = new_rate_probability[i];
-        }
-      }
-      // Update rate probabilities. 
-      for (int i = 0; i < MAX_RATE; i++) {
-        // Calculating poisson
-        double p = pow((i / PACKETS_PER_BUCKET) * (TICK  / 1000.0), packets_in_tick);
-        p /= (double) factorial(packets_in_tick);
-        p *= exp(-1 * (i / PACKETS_PER_BUCKET) * (TICK / 1000.0));
-        rate_probability[i] = rate_probability[i] * p;
-        if (DEBUG) cerr << "rate_probability[" << i << "] = " << rate_probability[i] << endl;
-        sum += rate_probability[i];
-      }
-      if (DEBUG) cerr << "sum = " << sum << endl;
-      // Normalize rate probabilities. 
-      for (int i = 0; i < MAX_RATE; i++) {
-        rate_probability[i] = rate_probability[i] / sum;
-        if (DEBUG) cerr << "normalized rate_probability[" << i << "] = " << rate_probability[i] << endl;
-      }
-      // Set window size based on largest rate_probability value
-      sum = 0;
-      int i = 0;
-      while (sum < PERCENTILE_LATENCY && i < MAX_RATE) {
-        sum += rate_probability[i];
-        i++;
-      }
-//      uint64_t new_estimate = (i / PACKETS_PER_BUCKET) * TICKS_PER_RTT;
-//      double ewma;
-//      if (new_estimate < the_window_size) {
-//        ewma = 2.0 * EWMA_WEIGHT;
-//      } else {
-//        ewma = EWMA_WEIGHT;
-//      }
-//      the_window_size = (ewma * new_estimate) + ((1 - ewma) * the_window_size);
-      uint64_t new_estimate = (i / PACKETS_PER_BUCKET) + old_packets_in_tick + old2_packets_in_tick - retransmit_packets_in_tick;
-      the_window_size = EWMA_WEIGHT * (new_estimate) + ((1 - EWMA_WEIGHT) * the_window_size);
-      if (DEBUG) cerr << "new window sz: " << the_window_size << endl;
-      // 95th percentile just use lambda * 8 (TICK * 8 = RTT)     
-      // Reset for next period.
-      last_tick = timestamp_ack_received;
-      old_packets_in_tick = packets_in_tick;
-      old2_packets_in_tick = old_packets_in_tick;
+      double throughput = packets_in_tick / (double)(timestamp_ack_received - last_tick);
+      the_window_size = (EWMA_WEIGHT * (min_rtt * throughput) + 1) + ((1 -EWMA_WEIGHT) * the_window_size);
       packets_in_tick = 0;
-      retransmit_packets_in_tick = 0;
-      time_elapsed += TICK / 1000.0;
+      last_tick = timestamp_ack_received;
     }
   }
  
@@ -255,5 +163,5 @@ void Controller::ack_received( const uint64_t sequence_number_acked,
    before sending one more datagram */
 unsigned int Controller::timeout_ms()
 {
-  return 1000; /* timeout of one second */
+  return 2.0 * min_rtt; /* timeout of one second */
 }
