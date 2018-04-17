@@ -143,6 +143,7 @@ void Controller::ack_received( const uint64_t sequence_number_acked,
     }
     if (timestamp_ack_received - last_tick >= TICK) {
       double throughput = packets_in_tick / (double)(timestamp_ack_received - last_tick);
+      if (throughput != 0.0) cerr << "found throughput of " << throughput << " with packets_in_tick " << packets_in_tick << endl;
       the_window_size = (EWMA_WEIGHT * (min_rtt * throughput) + 1) + ((1 -EWMA_WEIGHT) * the_window_size);
       packets_in_tick = 0;
       last_tick = timestamp_ack_received;
