@@ -14,14 +14,6 @@
 
 using namespace std;
 
-
-/* Default constructor */
-Controller::Controller( const bool debug )
-  : debug_( debug )
-{
-    if (FIXED_WINDOW) the_window_size = 15;
-}
-
 unsigned int the_window_size = 20;
 unsigned int in_progress_window = 0;
 uint64_t last_tick = 0;
@@ -29,6 +21,13 @@ uint64_t last_tick = 0;
 uint64_t prev_rtt_sum = 50;
 uint64_t min_rtt = 50;
 uint64_t curr_rtt_sum = 0;
+
+/* Default constructor */
+Controller::Controller( const bool debug )
+  : debug_( debug )
+{
+    if (FIXED_WINDOW) the_window_size = 15;
+}
 
 /* Get current window size, in datagrams */
 unsigned int Controller::window_size()
@@ -89,7 +88,7 @@ void Controller::ack_received( const uint64_t sequence_number_acked,
     if (rtt <= 1 * min_rtt) {
 	the_window_size += 2;
     } else if (rtt <= 1.5 * min_rtt) {
-	the_window_size += 1;
+	the_window_size += 1; 
     } 
     if (timestamp_ack_received - last_tick >= TICK) {
       if (curr_rtt_sum >= prev_rtt_sum)
