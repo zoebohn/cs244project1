@@ -52,7 +52,6 @@ uint64_t prev_rtt = 50;
 uint64_t prev_rtt_sum = 50;
 uint64_t min_rtt = 50;
 uint64_t curr_rtt_sum = 0;
-uint64_t avg_rtt = 50;
 
 /* Get current window size, in datagrams */
 unsigned int Controller::window_size()
@@ -127,7 +126,6 @@ void Controller::ack_received( const uint64_t sequence_number_acked,
   if (COOL_ALG) {
     uint64_t rtt = timestamp_ack_received - send_timestamp_acked;
     min_rtt = min(min_rtt, rtt);
-    avg_rtt = (EWMA_WEIGHT * rtt) + ((1 - EWMA_WEIGHT) * avg_rtt);
     if (rtt <= 1 * min_rtt) {
 	the_window_size += 2;
     } else if (rtt <= 1.5 * min_rtt) {
