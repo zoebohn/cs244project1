@@ -2,7 +2,6 @@
 
 #include "controller.hh"
 #include "timestamp.hh"
-#include <math.h>
 
 #define AIMD false 
 #define AIMD_INC 2
@@ -10,8 +9,6 @@
 
 #define EMMA_ZOE_ALG true
 #define TICK 20 // in ms
-
-#define DEBUG false 
 
 using namespace std;
 
@@ -50,7 +47,6 @@ void Controller::datagram_was_sent( const uint64_t sequence_number,
 				    const bool after_timeout
 				    /* datagram was sent because of a timeout */ )
 {
-  /* Default: take no action */
 
   if (AIMD) {
     if (after_timeout) {
