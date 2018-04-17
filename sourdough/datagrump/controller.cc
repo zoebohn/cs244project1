@@ -3,6 +3,8 @@
 #include "controller.hh"
 #include "timestamp.hh"
 
+#define FIXED_WINDOW false
+
 #define AIMD false 
 #define AIMD_INC 2
 #define AIMD_DEC 0.5
@@ -114,5 +116,5 @@ void Controller::ack_received( const uint64_t sequence_number_acked,
    before sending one more datagram */
 unsigned int Controller::timeout_ms()
 {
-  return 2.0 * min_rtt; /* timeout of one second */
+  return EMMA_ZOE_ALG ? 2.0 * min_rtt: 1000; /* default timeout of one second */
 }
