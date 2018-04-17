@@ -14,7 +14,7 @@
 #define DT_THRESHOLD 450  // in milliseconds
 #define PERIOD 2 // in milliseconds, time to wait before next increase
 
-#define COOL_ALG true
+#define EMMA_ZOE_ALG true
 #define TICK 20 // in ms
 #define EWMA_WEIGHT 0.2
 #define RTT_PERCENT 1.5
@@ -123,7 +123,7 @@ void Controller::ack_received( const uint64_t sequence_number_acked,
   }
   last_ack = sequence_number_acked > last_ack ? sequence_number_acked : last_ack;
  
-  if (COOL_ALG) {
+  if (EMMA_ZOE_ALG) {
     uint64_t rtt = timestamp_ack_received - send_timestamp_acked;
     min_rtt = min(min_rtt, rtt);
     if (rtt <= 1 * min_rtt) {
