@@ -88,15 +88,6 @@ void Controller::datagram_was_sent( const uint64_t sequence_number,
   }
 }
 
-uint64_t factorial(uint64_t n) {
-  if (n == 0) return 1;
-  return n*factorial(n-1);
-}
-
-double cdf(double mean, double stddev, double x) {
-  return 0.5 * erfc(-1 * (x - mean) / (stddev));
-}
-
 /* An ack was received */
 void Controller::ack_received( const uint64_t sequence_number_acked,
 			       /* what sequence number was acknowledged */
@@ -134,18 +125,19 @@ void Controller::ack_received( const uint64_t sequence_number_acked,
   last_ack = sequence_number_acked > last_ack ? sequence_number_acked : last_ack;
  
   if (COOL_ALG) {
-//    packets_in_tick++;  // HAD THIS COMMENTED OUT
     uint64_t rtt = timestamp_ack_received - send_timestamp_acked;
     min_rtt = min(min_rtt, rtt);
     avg_rtt = (EWMA_WEIGHT * rtt) + ((1 - EWMA_WEIGHT) * avg_rtt);
     if (rtt <= RTT_PERCENT * min_rtt) {
-        the_window_size++;
-    }
+        the_window_size += 1;
+    } 
+    if (rtt <= min_rtt) {
+	the_window_size += 1;
+    } 
     if (timestamp_ack_received - last_tick >= TICK) {
-      double throughput = packets_in_tick / (double)(timestamp_ack_received - last_tick);
-      if (throughput != 0.0) cerr << "found throughput of " << throughput << " with packets_in_tick " << packets_in_tick << endl;
-      the_window_size = (EWMA_WEIGHT * (min_rtt * throughput) + 1) + ((1 -EWMA_WEIGHT) * the_window_size);
-      packets_in_tick = 0;
+      //double throughput = packets_in_tick / (double)(timestamp_ack_received - last_tick);
+      //the_window_size = (EWMA_WEIGHT * (min_rtt * throughput) + 1) + ((1 -EWMA_WEIGHT) * the_window_size);
+      the_window_size = 1 + .8 * the_window_size;
       last_tick = timestamp_ack_received;
     }
   }
