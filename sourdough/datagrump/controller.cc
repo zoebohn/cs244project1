@@ -8,23 +8,12 @@
 #define AIMD_INC 2
 #define AIMD_DEC 0.5
 
-#define DELAY_TRIGGERED false 
-#define DT_INC 1
-#define DT_DEC 10 
-#define DT_THRESHOLD 450  // in milliseconds
-#define PERIOD 2 // in milliseconds, time to wait before next increase
-
 #define EMMA_ZOE_ALG true
 #define TICK 20 // in ms
-#define EWMA_WEIGHT 0.2
-#define RTT_PERCENT 1.5
 
 #define DEBUG false 
 
 using namespace std;
-
-// sum of 0 through max rate * TICKS_PER_RTT
-//double total_packets;
 
 
 /* Default constructor */
@@ -33,22 +22,10 @@ Controller::Controller( const bool debug )
 {
 }
 
-/* Default: fixed window size of 100 outstanding datagrams */
 unsigned int the_window_size = 20;
-
 unsigned int in_progress_window = 0;
-
-// last ack received, used for delay triggered
-uint64_t last_ack = 0;
-
-// last time window was updated, used for delay triggered
-uint64_t last_update = 0;
-
-// last tick time
 uint64_t last_tick = 0;
 
-
-uint64_t prev_rtt = 50;
 uint64_t prev_rtt_sum = 50;
 uint64_t min_rtt = 50;
 uint64_t curr_rtt_sum = 0;
@@ -107,22 +84,6 @@ void Controller::ack_received( const uint64_t sequence_number_acked,
     }
   }
 
-  if (DELAY_TRIGGERED) {
-    uint64_t rtt = timestamp_ack_received - send_timestamp_acked;
-    if (rtt < DT_THRESHOLD && sequence_number_acked > last_ack) {
-         in_progress_window += DT_INC;
-         if (in_progress_window >= the_window_size) {
-           the_window_size += 1;
-           in_progress_window = 0;
-         }
-    } else {
-       uint64_t new_window_sz = the_window_size - DT_DEC;
-       the_window_size = new_window_sz < the_window_size ? new_window_sz : 0; // check for overflow
-    }
-    if (DEBUG) cerr << "new window sz: " << the_window_size << endl;
-  }
-  last_ack = sequence_number_acked > last_ack ? sequence_number_acked : last_ack;
- 
   if (EMMA_ZOE_ALG) {
     uint64_t rtt = timestamp_ack_received - send_timestamp_acked;
     min_rtt = min(min_rtt, rtt);
@@ -140,8 +101,7 @@ void Controller::ack_received( const uint64_t sequence_number_acked,
       prev_rtt_sum = curr_rtt_sum;
       curr_rtt_sum = 0; 
     }
-    prev_rtt = rtt;
-    curr_rtt_sum += prev_rtt;
+    curr_rtt_sum += rtt;
   }
  
   if ( debug_ ) {
