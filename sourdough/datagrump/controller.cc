@@ -19,6 +19,7 @@ using namespace std;
 Controller::Controller( const bool debug )
   : debug_( debug )
 {
+    if (FIXED_WINDOW) the_window_size = 15;
 }
 
 unsigned int the_window_size = 20;
