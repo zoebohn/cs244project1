@@ -47,8 +47,6 @@ uint64_t last_update = 0;
 // last tick time
 uint64_t last_tick = 0;
 
-// acks received during tick
-uint64_t packets_in_tick = 0;
 
 uint64_t prev_rtt = 50;
 uint64_t prev_rtt_sum = 50;
