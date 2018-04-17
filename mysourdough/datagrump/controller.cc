@@ -132,7 +132,7 @@ void Controller::ack_received( const uint64_t sequence_number_acked,
         the_window_size += 1;
     } 
     if (rtt <= min_rtt) {
-	the_window_size += 1;
+	the_window_size += 2;
     } 
     if (timestamp_ack_received - last_tick >= TICK) {
       //double throughput = packets_in_tick / (double)(timestamp_ack_received - last_tick);
