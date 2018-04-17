@@ -6,8 +6,8 @@
 #define FIXED_WINDOW false
 
 #define AIMD false 
-#define AIMD_INC 2
-#define AIMD_DEC 0.5
+#define AIMD_INC 1
+#define AIMD_DEC 0.25
 
 #define EMMA_ZOE_ALG true
 #define TICK 20 // in ms
@@ -18,9 +18,10 @@ unsigned int the_window_size = 20;
 unsigned int in_progress_window = 0;
 uint64_t last_tick = 0;
 
-uint64_t prev_rtt_sum = 50;
+uint64_t prev_rtt_avg = 50.0;
 uint64_t min_rtt = 50;
 uint64_t curr_rtt_sum = 0;
+uint64_t packets_in_tick = 0;
 
 /* Default constructor */
 Controller::Controller( const bool debug )
@@ -85,19 +86,22 @@ void Controller::ack_received( const uint64_t sequence_number_acked,
   if (EMMA_ZOE_ALG) {
     uint64_t rtt = timestamp_ack_received - send_timestamp_acked;
     min_rtt = min(min_rtt, rtt);
+    packets_in_tick++;
     if (rtt <= 1 * min_rtt) {
 	the_window_size += 2;
     } else if (rtt <= 1.5 * min_rtt) {
 	the_window_size += 1; 
     } 
     if (timestamp_ack_received - last_tick >= TICK) {
-      if (curr_rtt_sum >= prev_rtt_sum)
+      double curr_rtt_avg = curr_rtt_sum / ((double)packets_in_tick);
+      if (curr_rtt_avg >= prev_rtt_avg)
 	the_window_size = 1 + .7 * the_window_size;	
       else
 	the_window_size = 1 + .9 * the_window_size;
       last_tick = timestamp_ack_received;
-      prev_rtt_sum = curr_rtt_sum;
-      curr_rtt_sum = 0; 
+      prev_rtt_avg = curr_rtt_avg;
+      curr_rtt_sum = 0;
+      packets_in_tick = 0; 
     }
     curr_rtt_sum += rtt;
   }
